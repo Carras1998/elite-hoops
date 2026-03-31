@@ -368,7 +368,52 @@ function wchip(ex,wd){
 let timerInterval=null,timerTotal=0,timerRemaining=0;
 const CIRCUMFERENCE=2*Math.PI*18;
 function parseRest(s){if(!s||s==='Superset'||s==='Sin descanso'||s==='—')return 0;const m=s.match(/(\d+(?:\.\d+)?)\s*min/);if(m)return Math.round(parseFloat(m[1])*60);const sg=s.match(/(\d+)\s*seg/);if(sg)return parseInt(sg[1]);return 0;}
-function playBeep(){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const freqs=[880,880,1100];freqs.forEach((f,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=f;o.type='sine';const t=ctx.currentTime+i*0.25;g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.18);o.start(t);o.stop(t+0.18);});}catch(e){}}
+function playTone(freq,dur,vol,type,delay){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.connect(g);g.connect(ctx.destination);
+    o.frequency.value=freq;o.type=type||'sine';
+    const t=ctx.currentTime+(delay||0);
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.start(t);o.stop(t+dur+0.05);
+  }catch(e){}
+}
+function playCountdownBeep(){
+  // Pitido corto de cuenta atrás (3,2,1)
+  playTone(660,0.12,0.75,'square');
+}
+function playWhistle(){
+  // Silbato: sweep ascendente + dos pitidos fuertes
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    // Sweep 800→1400Hz
+    const o1=ctx.createOscillator(),g1=ctx.createGain();
+    o1.connect(g1);g1.connect(ctx.destination);
+    o1.type='sawtooth';
+    o1.frequency.setValueAtTime(800,ctx.currentTime);
+    o1.frequency.linearRampToValueAtTime(1400,ctx.currentTime+0.15);
+    g1.gain.setValueAtTime(0.9,ctx.currentTime);
+    g1.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.35);
+    o1.start(ctx.currentTime);o1.stop(ctx.currentTime+0.36);
+    // Segundo golpe
+    const o2=ctx.createOscillator(),g2=ctx.createGain();
+    o2.connect(g2);g2.connect(ctx.destination);
+    o2.type='sawtooth';
+    o2.frequency.setValueAtTime(1000,ctx.currentTime+0.4);
+    o2.frequency.linearRampToValueAtTime(1600,ctx.currentTime+0.55);
+    g2.gain.setValueAtTime(0.9,ctx.currentTime+0.4);
+    g2.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.75);
+    o2.start(ctx.currentTime+0.4);o2.stop(ctx.currentTime+0.76);
+  }catch(e){}
+}
+function playBeep(){
+  // Pitido normal fin de serie (más fuerte que antes)
+  playTone(880,0.18,0.75,'sine');
+  playTone(880,0.18,0.75,'sine',0.25);
+  playTone(1100,0.22,0.75,'sine',0.5);
+}
 function vibrateDevice(){try{if('vibrate'in navigator)navigator.vibrate([250,100,250,100,400]);}catch(e){}}
 function startTimer(exName,restSecs){
   if(restSecs<=0)return;
@@ -388,12 +433,22 @@ function startTimer(exName,restSecs){
     if(timerRemaining<=0){
       timerRemaining=0;updateTimerDisplay();
       clearInterval(timerInterval);timerInterval=null;
-      cd.textContent='Listo!';cd.className='timer-countdown done';
+      cd.textContent='\u00a1Vamos!';cd.className='timer-countdown done';
       bar.className='timer-bar show done';
       arc.style.stroke='#4a9d4a';
-      playBeep();vibrateDevice();
+      playWhistle();vibrateDevice();
       setTimeout(()=>{bar.className='timer-bar';},3500);
-    } else {updateTimerDisplay();}
+    } else {
+      // Cuenta atrás 3-2-1 con pitidos y texto grande
+      if(timerRemaining<=3){
+        const cd2=document.getElementById('timer-countdown');
+        cd2.style.fontSize='42px';
+        cd2.style.color='#EE005A';
+        playCountdownBeep();
+        setTimeout(()=>{cd2.style.fontSize='';cd2.style.color='';},400);
+      }
+      updateTimerDisplay();
+    }
   },1000);
 }
 function updateTimerDisplay(){
@@ -489,10 +544,10 @@ const EX_MUSCLES={
   m1:{core:3,glute:2,lats:2,lower_back:1,obliques:3},
   m2:{lats:3,bicep:3,rear_delt:2,mid_trap:2,forearm:2},
   m3:{lats:3,mid_trap:3,rear_delt:2,bicep:2,lower_back:1},
-  m4:{lats:3,upper_pec:1,tricep:1},
+  m4:{mid_delt:3,ant_delt:1,rear_delt:1},
   m5:{ant_delt:3,tricep:3,upper_trap:2,quad:1},
-  m6:{core:3,obliques:2},
   m7:{bicep:3,forearm:2},
+  m8:{tricep:3,ant_delt:1},
   v0:{quad:3,glute:3,calf:2,hamstring:1},
   v1:{upper_pec:3,lower_pec:2,ant_delt:2,tricep:3},
   v2:{glute:3,hamstring:3,lower_back:3,upper_trap:2,quad:2,forearm:2},
@@ -513,21 +568,21 @@ const DAYS=[
   ]},
   {name:'FASE 1 \u2014 POTENCIA OL\u00cdMPICA',exs:[
    {id:'l1',name:'Hang Power Clean',sub:'Barra ol\u00edmpica \u00b7 Desde encima de rodillas \u00b7 Explosi\u00f3n de cadera \u2192 semi-squat',tag:'pot',tgl:'Potencia',barType:'ob',
-    wks:[{s:5,r:'3',kg:60,rest:'3 min'},{s:5,r:'3',kg:65,rest:'3 min'},{s:5,r:'3',kg:70,rest:'3 min'},{s:3,r:'3',kg:50,rest:'2 min'}]},
-   {id:'l2',name:'Medicine Ball Slam',sub:'10 kg overhead \u00b7 Superset con el clean \u00b7 Triple extensi\u00f3n sin barra',tag:'pot',tgl:'Potencia',barType:'ball',
-    wks:[{s:4,r:'5',kg:10,rest:'90 seg'},{s:4,r:'5',kg:10,rest:'90 seg'},{s:4,r:'5',kg:10,rest:'90 seg'},{s:3,r:'5',kg:10,rest:'90 seg'}]}
+    wks:[{s:4,r:'3',kg:55,rest:'3 min'},{s:4,r:'3',kg:60,rest:'3 min'},{s:5,r:'3',kg:65,rest:'3 min'},{s:3,r:'3',kg:45,rest:'2 min'}]},
+   {id:'l2',name:'Medicine Ball Slam',sub:'Calentamiento potencia · 2 series ligeras antes del Clean · Activación cadena posterior',tag:'cal',tgl:'Calentamiento',barType:'ball',
+    wks:[{s:2,r:'5',kg:10,rest:'60 seg'},{s:2,r:'5',kg:10,rest:'60 seg'},{s:2,r:'5',kg:10,rest:'60 seg'},{s:2,r:'5',kg:10,rest:'60 seg'}]}
   ]},
   {name:'FASE 2 \u2014 FUERZA INFERIOR',exs:[
    {id:'l3',name:'Back Squat',sub:'Rack + barra ol\u00edmpica \u00b7 Exc\u00e9ntrico 3 seg \u00b7 Conc\u00e9ntrico explosivo \u00b7 1RM ~143 kg',tag:'fue',tgl:'Fuerza',barType:'ob',
     wks:[{s:4,r:'6',kg:100,rest:'3 min'},{s:4,r:'5',kg:110,rest:'3 min'},{s:4,r:'3',kg:122,rest:'3 min'},{s:3,r:'6',kg:80,rest:'2 min'}]},
-   {id:'l4',name:'Bulgarian Split Squat',sub:'Mancuernas + banco \u00b7 Pie trasero elevado \u00b7 Corrige desequilibrios',tag:'uni',tgl:'Unilateral',barType:'manc',
-    wks:[{s:3,r:'8/lado',kg:22,rest:'90 seg'},{s:3,r:'8/lado',kg:24,rest:'90 seg'},{s:3,r:'6/lado',kg:26,rest:'90 seg'},{s:3,r:'10/lado',kg:18,rest:'90 seg'}]},
+   {id:'l4',name:'Bulgarian Split Squat',sub:'Mancuernas + banco · 2 series sem1–2 · Si los cuádriceps ya van cargados reduce kg',tag:'uni',tgl:'Unilateral',barType:'manc',
+    wks:[{s:2,r:'8/lado',kg:18,rest:'90 seg'},{s:2,r:'8/lado',kg:20,rest:'90 seg'},{s:3,r:'6/lado',kg:22,rest:'90 seg'},{s:2,r:'10/lado',kg:14,rest:'90 seg'}]},
    {id:'l5',name:'Romanian Deadlift (RDL)',sub:'Barra ol\u00edmpica \u00b7 Isquiotibiales + gl\u00fateos \u00b7 Espalda neutra siempre',tag:'fue',tgl:'Posterior',barType:'ob',
-    wks:[{s:3,r:'8',kg:112,rest:'2 min'},{s:3,r:'7',kg:117,rest:'2 min'},{s:3,r:'6',kg:122,rest:'2 min'},{s:3,r:'8',kg:85,rest:'90 seg'}]}
+    wks:[{s:2,r:'8',kg:100,rest:'2 min'},{s:3,r:'7',kg:107,rest:'2 min'},{s:3,r:'6',kg:112,rest:'2 min'},{s:2,r:'8',kg:80,rest:'90 seg'}]}
   ]},
   {name:'FASE 3 \u2014 EMPUJE + ESTABILIDAD',exs:[
    {id:'l6',name:'Press de Banca Inclinado',sub:'Banco 30-45\u00b0 + barra \u00b7 1RM inclinado ~83 kg (78% banca plana) \u00b7 Haz clavicular',tag:'fue',tgl:'Empuje',barType:'ob',
-    wks:[{s:4,r:'8',kg:60,rest:'2 min'},{s:4,r:'7',kg:65,rest:'2 min'},{s:4,r:'5',kg:70,rest:'2 min'},{s:3,r:'10',kg:50,rest:'90 seg'}]},
+    wks:[{s:3,r:'8',kg:60,rest:'2 min'},{s:3,r:'7',kg:65,rest:'2 min'},{s:4,r:'5',kg:70,rest:'2 min'},{s:3,r:'10',kg:50,rest:'90 seg'}]},
    {id:'l7',name:'Face Pull (trabajo)',sub:'Superset con el press \u00b7 2\u00d7 volumen tracci\u00f3n/empuje \u2192 hombros sanos',tag:'est',tgl:'Estabilidad',barType:'polea',
     wks:[{s:3,r:'15',kg:22,rest:'Superset'},{s:3,r:'15',kg:24,rest:'Superset'},{s:3,r:'15',kg:26,rest:'Superset'},{s:3,r:'15',kg:20,rest:'Superset'}]}
   ]}
@@ -537,29 +592,29 @@ const DAYS=[
    {id:'m0',name:'Hang High Pull',sub:'Barra ol\u00edmpica \u00b7 Sin recepci\u00f3n \u2192 m\u00e1s carga que el clean \u00b7 SNC fresco',tag:'pot',tgl:'Potencia',barType:'ob',
     wks:[{s:4,r:'4',kg:65,rest:'3 min'},{s:4,r:'4',kg:70,rest:'3 min'},{s:4,r:'3',kg:75,rest:'3 min'},{s:3,r:'4',kg:55,rest:'2 min'}]},
    {id:'m1',name:'Lanzamiento Rotacional Med Ball',sub:'10 kg \u00b7 Contra pared \u00b7 Superset \u00b7 Potencia de cadera y tronco',tag:'pot',tgl:'Rotacional',barType:'ball',
-    wks:[{s:4,r:'6/lado',kg:10,rest:'90 seg'},{s:4,r:'6/lado',kg:10,rest:'90 seg'},{s:4,r:'6/lado',kg:10,rest:'90 seg'},{s:3,r:'6/lado',kg:10,rest:'90 seg'}]}
+    wks:[{s:3,r:'6/lado',kg:10,rest:'90 seg'},{s:3,r:'6/lado',kg:10,rest:'90 seg'},{s:4,r:'6/lado',kg:10,rest:'90 seg'},{s:3,r:'6/lado',kg:10,rest:'90 seg'}]}
   ]},
   {name:'FASE 2 \u2014 TRACCI\u00d3N',exs:[
    {id:'m2',name:'Dominadas con Lastre',sub:'Barra dominadas \u00b7 Agarre prono \u00b7 ROM completo \u00b7 Sin kipping',tag:'fue',tgl:'Tracci\u00f3n Vertical',barType:null,
-    wks:[{s:5,r:'5',kg:'PC+5',rest:'3 min'},{s:5,r:'4',kg:'PC+10',rest:'3 min'},{s:5,r:'4',kg:'PC+12.5',rest:'3 min'},{s:4,r:'6',kg:'PC',rest:'2 min'}]},
+    wks:[{s:4,r:'5',kg:'PC+5',rest:'3 min'},{s:4,r:'4',kg:'PC+10',rest:'3 min'},{s:5,r:'4',kg:'PC+12.5',rest:'3 min'},{s:4,r:'6',kg:'PC',rest:'2 min'}]},
    {id:'m3',name:'Remo Unilateral Mancuerna',sub:'Banco ajustable \u00b7 Retracci\u00f3n escapular completa \u00b7 Base: 50 kg',tag:'fue',tgl:'Tracci\u00f3n Horizontal',barType:'manc',
-    wks:[{s:4,r:'8/lado',kg:50,rest:'90 seg'},{s:4,r:'8/lado',kg:52,rest:'90 seg'},{s:4,r:'6/lado',kg:54,rest:'90 seg'},{s:3,r:'10/lado',kg:40,rest:'90 seg'}]},
-   {id:'m4',name:'Pullover Mancuerna',sub:'Banco plano \u00b7 Dorsal posici\u00f3n alargada \u00b7 Superset con remo',tag:'fue',tgl:'Tracci\u00f3n',barType:'manc',
-    wks:[{s:3,r:'12',kg:24,rest:'Superset'},{s:3,r:'11',kg:26,rest:'Superset'},{s:3,r:'10',kg:28,rest:'Superset'},{s:3,r:'12',kg:20,rest:'Superset'}]}
+    wks:[{s:4,r:'8/lado',kg:50,rest:'90 seg'},{s:4,r:'8/lado',kg:52,rest:'90 seg'},{s:3,r:'6/lado',kg:54,rest:'90 seg'},{s:3,r:'10/lado',kg:40,rest:'90 seg'}]},
+   {id:'m4',name:'Elevaciones Laterales Polea',sub:'Polea baja \u00b7 Tobillera en mu\u00f1eca \u00b7 Tensi\u00f3n constante todo el rango \u00b7 Equilibrio deltoides medio para lanzamiento',tag:'acc',tgl:'Hombro',barType:'polea',
+    wks:[{s:3,r:'12',kg:8,rest:'60 seg'},{s:3,r:'12',kg:9,rest:'60 seg'},{s:3,r:'10',kg:10,rest:'60 seg'},{s:3,r:'15',kg:6,rest:'60 seg'}]}
   ]},
   {name:'FASE 3 \u2014 PUSH PRESS + ANTI-ROTACI\u00d3N',exs:[
    {id:'m5',name:'Push Press',sub:'Barra ol\u00edmpica \u00b7 Flexi\u00f3n leve \u2192 extensi\u00f3n explosiva \u2192 press \u00b7 Base: 50 kg',tag:'pot',tgl:'Potencia + Empuje',barType:'ob',
     wks:[{s:4,r:'6',kg:50,rest:'2 min'},{s:4,r:'5',kg:55,rest:'2 min'},{s:4,r:'5',kg:60,rest:'2 min'},{s:3,r:'6',kg:40,rest:'90 seg'}]},
-   {id:'m6',name:'Pallof Press',sub:'Polea altura de pecho \u00b7 Lateral \u00b7 2 seg extendido \u00b7 Anti-rotaci\u00f3n',tag:'est',tgl:'Anti-Rotaci\u00f3n',barType:'polea',
-    wks:[{s:3,r:'10/lado',kg:15,rest:'Superset'},{s:3,r:'10/lado',kg:17.5,rest:'Superset'},{s:3,r:'10/lado',kg:20,rest:'Superset'},{s:3,r:'10/lado',kg:12,rest:'Superset'}]},
-   {id:'m7',name:'Curl Polea Baja',sub:'Cierre de sesi\u00f3n \u00b7 Exc\u00e9ntrico 3 seg \u00b7 Alta resistencia posici\u00f3n alargada',tag:'acc',tgl:'Accesorio',barType:'polea',
-    wks:[{s:3,r:'12',kg:16,rest:'60 seg'},{s:3,r:'11',kg:18,rest:'60 seg'},{s:3,r:'10',kg:20,rest:'60 seg'},{s:3,r:'12',kg:14,rest:'60 seg'}]}
+   {id:'m7',name:'Curl Bayesian Unilateral',sub:'Polea baja \u00b7 Espalda a la m\u00e1quina \u00b7 Agarre est\u00e1ndar \u00b7 M\u00e1xima tensi\u00f3n en posici\u00f3n alargada \u00b7 Superset con extensi\u00f3n',tag:'acc',tgl:'B\u00edceps',barType:'polea',
+    wks:[{s:2,r:'12',kg:9,rest:'Superset'},{s:2,r:'11',kg:11,rest:'Superset'},{s:2,r:'10',kg:13,rest:'Superset'},{s:2,r:'12',kg:7,rest:'Superset'}]},
+   {id:'m8',name:'Extensi\u00f3n Tr\u00edceps Polea',sub:'Polea alta \u00b7 Mu\u00f1equera \u00b7 Unilateral \u00b7 Codo pegado al cuerpo \u00b7 Exc\u00e9ntrico controlado \u00b7 Superset con curl',tag:'acc',tgl:'Tr\u00edceps',barType:'polea',
+    wks:[{s:2,r:'12',kg:9,rest:'60 seg'},{s:2,r:'12',kg:11,rest:'60 seg'},{s:2,r:'10',kg:13,rest:'60 seg'},{s:2,r:'15',kg:7,rest:'60 seg'}]}
   ]}
  ]},
  {id:'v',name:'VIERNES',sub:'Deadlift + Salto + Full Body',dur:'~80 min',phases:[
   {name:'FASE 1 \u2014 POTENCIA + SALTO (SNC fresco, siempre primero)',exs:[
    {id:'v0',name:'Jump Squat',sub:'MultiPower \u00b7 27-34% 1RM squat \u00b7 Zona \u00f3ptima potencia \u00b7 Aterrizaje suave',tag:'pot',tgl:'Potencia M\u00e1xima',barType:'mp',
-    wks:[{s:5,r:'5',kg:39,rest:'3 min'},{s:5,r:'5',kg:44,rest:'3 min'},{s:5,r:'5',kg:49,rest:'3 min'},{s:3,r:'5',kg:29,rest:'2 min'}]},
+    wks:[{s:4,r:'5',kg:39,rest:'3 min'},{s:4,r:'5',kg:44,rest:'3 min'},{s:5,r:'5',kg:49,rest:'3 min'},{s:3,r:'5',kg:29,rest:'2 min'}]},
    {id:'v1',name:'Press Bal\u00edstico',sub:'MultiPower \u00b7 Potencia horizontal tren superior \u00b7 Superset',tag:'pot',tgl:'Potencia Horizontal',barType:'mp',
     wks:[{s:4,r:'6',kg:39,rest:'Superset'},{s:4,r:'6',kg:44,rest:'Superset'},{s:4,r:'5',kg:49,rest:'Superset'},{s:3,r:'6',kg:29,rest:'Superset'}]}
   ]},
@@ -567,11 +622,11 @@ const DAYS=[
    {id:'v2',name:'Deadlift Convencional',sub:'Barra ol\u00edmpica \u00b7 1RM ~159 kg \u00b7 Gl\u00fateos, isquios, erectores, trapecios',tag:'fue',tgl:'Fuerza M\u00e1xima',barType:'ob',
     wks:[{s:4,r:'5',kg:130,rest:'3 min'},{s:4,r:'4',kg:140,rest:'3 min'},{s:4,r:'3',kg:145,rest:'4 min'},{s:3,r:'5',kg:100,rest:'2 min'}]},
    {id:'v3',name:'Single Leg Romanian Deadlift',sub:'Mancuernas \u00b7 Una pierna \u00b7 Estabilidad tobillo + rodilla + cadera',tag:'uni',tgl:'Unilateral',barType:'manc',
-    wks:[{s:3,r:'8/lado',kg:22,rest:'90 seg'},{s:3,r:'8/lado',kg:24,rest:'90 seg'},{s:3,r:'6/lado',kg:26,rest:'90 seg'},{s:3,r:'8/lado',kg:18,rest:'90 seg'}]}
+    wks:[{s:2,r:'8/lado',kg:22,rest:'90 seg'},{s:2,r:'8/lado',kg:24,rest:'90 seg'},{s:3,r:'6/lado',kg:26,rest:'90 seg'},{s:2,r:'8/lado',kg:18,rest:'90 seg'}]}
   ]},
   {name:'FASE 3 \u2014 TREN SUPERIOR COMPLETO',exs:[
    {id:'v4',name:'Press Militar Estricto',sub:'Barra ol\u00edmpica \u00b7 De pie \u00b7 Sin ayuda de piernas \u00b7 +2.5 kg/sesi\u00f3n',tag:'fue',tgl:'Empuje Vertical',barType:'ob',
-    wks:[{s:4,r:'6',kg:40,rest:'2 min'},{s:4,r:'5',kg:45,rest:'2 min'},{s:4,r:'5',kg:50,rest:'2 min'},{s:3,r:'6',kg:30,rest:'90 seg'}]},
+    wks:[{s:4,r:'6',kg:40,rest:'2 min'},{s:4,r:'5',kg:45,rest:'2 min'},{s:3,r:'5',kg:50,rest:'2 min'},{s:3,r:'6',kg:30,rest:'90 seg'}]},
    {id:'v5',name:'Chin-ups (agarre supino)',sub:'Barra dominadas \u00b7 Mayor activaci\u00f3n b\u00edceps + dorsal alargado \u00b7 Superset',tag:'fue',tgl:'Tracci\u00f3n',barType:null,
     wks:[{s:3,r:'8',kg:'PC',rest:'Superset'},{s:3,r:'6',kg:'PC+5',rest:'Superset'},{s:3,r:'6',kg:'PC+5',rest:'Superset'},{s:3,r:'8',kg:'PC',rest:'Superset'}]}
   ]},
@@ -628,7 +683,7 @@ function restModifier(rest){if(!rest)return 0.88;const r=rest.toLowerCase();if(r
 const ROLE_COEFF={1:0.22,2:0.52,3:1.00};
 const TAG_MOD={pot:0.80,fue:1.00,uni:1.08,est:0.40,acc:0.72,cal:0.18};
 // 1RMs del atleta (kg)
-const ONE_RM_EX={l1:75,l3:143,l4:null,l5:143,l6:83,m0:90,m5:65,v0:143,v2:159,v3:null,v4:55,v6:130};
+const ONE_RM_EX={l1:75,l3:143,l4:28,l5:143,l6:83,m0:90,m5:65,v0:143,v2:159,v3:28,v4:55,v6:130};
 const REF_MAX=362;
 
 function exBaseStim(ex,wd){
@@ -998,7 +1053,23 @@ function scheduleSave(){
   },700);
 }
 function loadData(){
-  try{const r=localStorage.getItem(STORE_KEY);if(r)logData=JSON.parse(r);}catch(e){logData={};}
+  // Datos pre-cargados del entrenamiento del 30/03/2026
+  const SEED_DATA={"l1_c1_w0_s0_ck": true, "l2_c1_w0_s0_ck": true, "l7_c1_w0_s0_ck": true, "l6_c1_w0_s0_ck": true, "l5_c1_w0_s0_ck": true, "l4_c1_w0_s0_ck": true, "l3_c1_w0_s0_ck": true, "l6_c1_w0_s3_ck": true, "l6_c1_w0_s2_ck": true, "l0_c1_w0_s0_kg": "20", "sess_c1_w0_d0_start": "2026-03-30T14:45:01.433Z", "l0_c1_w0_s0_rp": "12", "l0_c1_w0_s0_ck": true, "l0_c1_w0_s0_notes": "He descansado 1 minuto entre series.", "l0_c1_w0_s1_kg": "20", "l0_c1_w0_s2_kg": "20", "l0_c1_w0_s1_rp": "12", "l0_c1_w0_s1_ck": true, "l0_c1_w0_s2_rp": "12", "l0_c1_w0_s2_ck": true, "l1_c1_w0_s0_kg": "50", "l1_c1_w0_s0_rp": "5", "l1_c1_w0_s1_kg": "50", "l1_c1_w0_s1_rp": "4", "l1_c1_w0_s1_ck": true, "l1_c1_w0_s2_kg": "50", "l1_c1_w0_s2_rp": "4", "l1_c1_w0_s2_ck": true, "l1_c1_w0_s3_kg": "50", "l1_c1_w0_s3_rp": "5", "l1_c1_w0_s3_ck": true, "l1_c1_w0_s4_kg": "50", "l2_c1_w0_s0_kg": "10", "l2_c1_w0_s1_kg": "10", "l2_c1_w0_s2_kg": "10", "l2_c1_w0_s3_kg": "10", "l1_c1_w0_s4_rp": "5", "l1_c1_w0_s4_ck": true, "l1_c1_w0_s0_notes": "Bajo 10 kg por qué no tengo técnica, es un ejercicio que nunca he hecho.", "l2_c1_w0_s0_rp": "6", "l2_c1_w0_s1_rp": "5", "l2_c1_w0_s1_ck": true, "l3_c1_w0_s0_kg": "100", "l2_c1_w0_s2_rp": "5", "l2_c1_w0_s2_ck": true, "l2_c1_w0_s3_rp": "5", "l2_c1_w0_s3_ck": true, "l3_c1_w0_s0_rp": "6", "l3_c1_w0_s1_kg": "100", "l3_c1_w0_s1_rp": "6", "l3_c1_w0_s1_ck": true, "l3_c1_w0_s2_kg": "100", "l3_c1_w0_s3_kg": "100", "l3_c1_w0_s2_rp": "6", "l3_c1_w0_s2_ck": true, "l3_c1_w0_s3_rp": "6", "l3_c1_w0_s3_ck": true, "l5_c1_w0_s0_kg": "100", "l4_c1_w0_s0_kg": "22", "l4_c1_w0_s0_rp": "8", "l4_c1_w0_s1_kg": "22", "l4_c1_w0_s1_rp": "8", "l4_c1_w0_s1_ck": true, "l4_c1_w0_s2_kg": "", "l5_c1_w0_s0_rp": "8", "l5_c1_w0_s1_kg": "100", "l5_c1_w0_s1_rp": "3", "l5_c1_w0_s1_ck": true, "l6_c1_w0_s0_kg": "60", "l6_c1_w0_s0_rp": "8", "l7_c1_w0_s0_kg": "22", "l7_c1_w0_s0_rp": "15", "l6_c1_w0_s1_kg": "60", "l6_c1_w0_s2_kg": "60", "l6_c1_w0_s3_kg": "60", "l7_c1_w0_s1_kg": "22", "l7_c1_w0_s2_kg": "22", "l6_c1_w0_s1_rp": "8", "l6_c1_w0_s1_ck": true, "l7_c1_w0_s1_rp": "15", "l7_c1_w0_s1_ck": true, "l6_c1_w0_s2_rp": "8", "l7_c1_w0_s2_rp": "15", "l7_c1_w0_s2_ck": true, "l6_c1_w0_s3_rp": "8", "sess_c1_w0_d0_end": "2026-03-30T16:28:58.901Z", "l4_c1_w0_s0_notes": "Demasiados sobrecargados los cuádriceps.", "l5_c1_w0_s0_notes": "Demasiado cansado/fatigado en general, muchas carga de ejercicios en mi opinión."};
+  try{
+    const r=localStorage.getItem(STORE_KEY);
+    if(r){
+      logData=JSON.parse(r);
+      // Merge seed data: añadir solo claves que no existen ya
+      let added=0;
+      for(const [k,v] of Object.entries(SEED_DATA)){
+        if(logData[k]===undefined){logData[k]=v;added++;}
+      }
+      if(added>0)localStorage.setItem(STORE_KEY,JSON.stringify(logData));
+    } else {
+      logData={...SEED_DATA};
+      localStorage.setItem(STORE_KEY,JSON.stringify(logData));
+    }
+  }catch(e){logData={...SEED_DATA};}
   // Migrate old keys (v4/v5) to cycle-1 format
   try{for(const k of Object.keys(logData)){if(!k.includes('_c'))continue;}
   const old5=localStorage.getItem('elitehoops_v5');if(old5){const od=JSON.parse(old5);for(const[k,v]of Object.entries(od)){if(!logData[k])logData[k]=v;}}}catch(e){}
