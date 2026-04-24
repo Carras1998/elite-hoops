@@ -2141,13 +2141,33 @@ function calDayDetail(year,month,day,dayId){
   h+='</div>';
   if(foundCycle===null){
     h+='<div class="cal-empty-msg">SIN REGISTRO DE SESIÓN</div>';
+  } else if(foundCycle<curCycle){
+    // Ciclo anterior: los IDs de ejercicio no coinciden con DAYS actual
+    // Mostrar solo resumen (tonelaje y series) sin nombres de ejercicio
+    var totalKg=0,totalSets=0,totalDone=0;
+    for(var ph2 of dayObj.phases)for(var ex2 of ph2.exs){
+      var wd2=ex2.wks[foundWeek];
+      for(var s2=0;s2<wd2.s+3;s2++){
+        var kg2=parseFloat(getVal(ex2.id,foundCycle,foundWeek,s2,'kg')||0);
+        var rp2=parseInt(getVal(ex2.id,foundCycle,foundWeek,s2,'rp')||0);
+        var ck2=getVal(ex2.id,foundCycle,foundWeek,s2,'ck');
+        if(kg2>0&&rp2>0)totalKg+=kg2*rp2;
+        if(ck2)totalDone++;
+        if(kg2>0||ck2)totalSets++;
+      }
+    }
+    h+='<div style="padding:12px;font-family:var(--f-mono);font-size:9px;color:var(--mu);text-align:center">';
+    h+='<div style="font-size:11px;color:#5a7a9a;margin-bottom:6px">ℹ️ Datos del Ciclo '+foundCycle+'</div>';
+    h+='<div style="display:flex;gap:16px;justify-content:center">';
+    h+='<div><span style="font-size:16px;color:var(--or);font-family:var(--f-title)">'+totalDone+'</span><br>series ✓</div>';
+    h+='<div><span style="font-size:16px;color:var(--or);font-family:var(--f-title)">'+(totalKg>=1000?(totalKg/1000).toFixed(1)+'t':totalKg+'kg')+'</span><br>volumen</div>';
+    h+='</div></div>';
   } else {
     for(const ph of dayObj.phases){
       let phRows='';
       for(const ex of ph.exs){
         const wd=ex.wks[foundWeek];
         const sets=[];let done=0;
-        // Iterar hasta wd.s o más si hay datos más allá
         let maxS=wd.s;
         for(let si=wd.s;si<wd.s+3;si++){
           if(getVal(ex.id,foundCycle,foundWeek,si,'ck')||getVal(ex.id,foundCycle,foundWeek,si,'kg'))maxS=si+1;
