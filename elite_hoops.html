@@ -2161,13 +2161,29 @@ function calDayDetail(year,month,day,dayId){
   h+='</div>';
   if(foundCycle===null){
     h+='<div class="cal-empty-msg">SIN REGISTRO DE SESIÓN</div>';
+  } else if(foundCycle<curCycle){
+    // Ciclo anterior: IDs de ejercicio distintos — mostrar resumen sin nombres
+    var totKg=0,totDone=0;
+    for(const k in logData){
+      if(k.includes('_c'+foundCycle+'_w'+foundWeek+'_')&&k.endsWith('_ck')&&logData[k]===true)totDone++;
+      if(k.includes('_c'+foundCycle+'_w'+foundWeek+'_')&&k.endsWith('_kg')){
+        const rk=k.replace('_kg','_rp');
+        const kg=parseFloat(logData[k]||0),rp=parseInt(logData[rk]||0);
+        if(kg>0&&rp>0)totKg+=kg*rp;
+      }
+    }
+    h+='<div style="padding:14px;text-align:center">';
+    h+='<div style="font-family:var(--f-mono);font-size:9px;color:#5a7a9a;margin-bottom:10px">ℹ️ Datos del Ciclo '+foundCycle+'</div>';
+    h+='<div style="display:flex;gap:20px;justify-content:center">';
+    h+='<div style="text-align:center"><div style="font-family:var(--f-title);font-size:22px;color:var(--or)">'+totDone+'</div><div style="font-family:var(--f-mono);font-size:8px;color:var(--mu)">series ✓</div></div>';
+    h+='<div style="text-align:center"><div style="font-family:var(--f-title);font-size:22px;color:var(--or)">'+(totKg>=1000?(totKg/1000).toFixed(1)+'t':totKg+'kg')+'</div><div style="font-family:var(--f-mono);font-size:8px;color:var(--mu)">volumen</div></div>';
+    h+='</div></div>';
   } else {
     for(const ph of dayObj.phases){
       let phRows='';
       for(const ex of ph.exs){
-        const wd=ex.wks[foundWeek];
+        const wd=ex.wks[Math.min(foundWeek,3)];
         const sets=[];let done=0;
-        // Iterar hasta wd.s o más si hay datos más allá
         let maxS=wd.s;
         for(let si=wd.s;si<wd.s+3;si++){
           if(getVal(ex.id,foundCycle,foundWeek,si,'ck')||getVal(ex.id,foundCycle,foundWeek,si,'kg'))maxS=si+1;
@@ -2240,6 +2256,32 @@ function getBest1RM(exId){
   return bestKg>0?bestKg:null;
 }
 
+// Busca el mejor 1RM de un ejercicio en TODOS los ciclos (para badges históricos)
+function getBest1RMAllCycles(exId){
+  let bestKg=0;
+  for(let c=1;c<=curCycle;c++){
+    for(let w=0;w<4;w++){
+      for(let s=0;s<6;s++){
+        const kg=parseFloat(getVal(exId,c,w,s,'kg')||0);
+        const rp=parseInt(getVal(exId,c,w,s,'rp')||0);
+        if(kg>0&&rp>0){
+          const orm=calc1RM(kg,rp);
+          if(orm&&orm.val&&orm.val>bestKg)bestKg=orm.val;
+        }
+      }
+    }
+  }
+  return bestKg>0?bestKg:null;
+}
+
+// Devuelve el mejor 1RM entre C2 actual y equivalente histórico C1
+function getBest1RMWithHistory(c2Id,c1Id){
+  const c2=getBest1RM(c2Id)||0;
+  const c1=c1Id?getBest1RMAllCycles(c1Id)||0:0;
+  const best=Math.max(c2,c1);
+  return best>0?best:null;
+}
+
 /* ========== BADGES ========== */
 // ═══ SISTEMA DE BADGES CON NIVELES ═══════════════════════════════
 // Niveles: 0=unico, 1=bronce, 2=plata, 3=oro, 4=salon, 5=leyenda
@@ -2257,7 +2299,7 @@ const BADGES_TIERED=[
   // ── FUERZA (1RM estimado, basado en ratios PC=75kg) ───────────────
   {id:'squat',icon:'🏋️',cat:'Fuerza',name:'Back Squat',
    thresholds:[82.5,105,135,165,202.5],
-   check:function(){return getBest1RM('l2');}},
+   check:function(){return getBest1RMWithHistory('l2','l3');}},
   {id:'deadlift',icon:'💀',cat:'Fuerza',name:'Peso Muerto',
    thresholds:[97.5,127.5,157.5,187.5,225],
    check:function(){
@@ -2273,30 +2315,36 @@ const BADGES_TIERED=[
    }},
   {id:'banca',icon:'💪',cat:'Fuerza',name:'Press Banca',
    thresholds:[67.5,82.5,105,127.5,150],
-   check:function(){return getBest1RM('l5');}},
+   check:function(){return getBest1RMWithHistory('l5','l6');}},
   {id:'hipthrust',icon:'🍑',cat:'Fuerza',name:'Hip Thrust',
    thresholds:[97.5,127.5,165,202.5,240],
-   check:function(){return getBest1RM('l3');}},
+   check:function(){return getBest1RMWithHistory('l3','l5');}},
   {id:'rdl',icon:'🔗',cat:'Fuerza',name:'Romanian Deadlift',
    thresholds:[82.5,112.5,142.5,172.5,202.5],
-   check:function(){return getBest1RM('m5');}},
+   check:function(){return getBest1RMWithHistory('m5',null);}},
   {id:'militar',icon:'🪖',cat:'Fuerza',name:'Press Militar',
    thresholds:[40,52.5,65,75,87.5],
-   check:function(){return getBest1RM('m6');}},
+   check:function(){return getBest1RMWithHistory('m6','m5');}},
   {id:'highpull',icon:'⚡',cat:'Fuerza',name:'High Pull',
    thresholds:[50,60,72.5,82.5,97.5],
-   check:function(){return getBest1RM('m1');}},
+   check:function(){return getBest1RMWithHistory('m1','m0');}},
   {id:'pushpress',icon:'🚀',cat:'Fuerza',name:'Push Press',
    thresholds:[45,57.5,67.5,80,90],
-   check:function(){return getBest1RM('m2');}},
+   check:function(){return getBest1RMWithHistory('m2','m2');}},
   {id:'dominadas',icon:'🦍',cat:'Fuerza',name:'Dominadas con Lastre',
    thresholds:[5,15,25,35,45],
    labelFn:function(v){return'+'+v+'kg';},
    check:function(){
      var best=0;
-     for(var c=1;c<=curCycle;c++)for(var w=0;w<4;w++)for(var s=0;s<6;s++){
+     // C2: m7 = Dominadas con Lastre (buscar lastre < PC=75kg)
+     for(var c=curCycle;c<=curCycle;c++)for(var w=0;w<4;w++)for(var s=0;s<6;s++){
        var kg=parseFloat(getVal('m7',c,w,s,'kg')||0);
-       if(kg>0&&kg<75){var lastre=kg;if(lastre>best)best=lastre;}
+       if(kg>0&&kg<75){if(kg>best)best=kg;}
+     }
+     // C1: m6 = Dominadas (peso registrado = PC+lastre, PC=75)
+     for(var w=0;w<4;w++)for(var s=0;s<6;s++){
+       var kg6=parseFloat(getVal('m6',1,w,s,'kg')||0);
+       if(kg6>0){var lastre=Math.max(0,kg6-75);if(lastre>best)best=lastre;}
      }
      return best||null;
    }},
