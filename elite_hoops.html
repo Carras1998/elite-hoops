@@ -812,13 +812,14 @@ function getLastVal(exId,type){
 }
 // Obtiene kg/reps de la sesión más reciente completada de este ejercicio+serie
 function getPrevSetVal(exId,setIdx,type){
-  // Solo ciclo actual — IDs de ejercicios distintos entre ciclos
+  // Solo ciclo actual — IDs distintos entre ciclos
   for(let w=curWeek-1;w>=0;w--){
     const v=logData[dkey(exId,curCycle,w,setIdx,type)];
     if(v!==null&&v!==undefined&&v!=='')return v;
   }
   return '';
 }
+
 function getVal(exId,cycle,week,s,type){
   const nk=dkey(exId,cycle,week,s,type);
   if(logData[nk]!==undefined)return logData[nk];
@@ -2077,29 +2078,48 @@ function calClick(el){
 function getDayState(year,month,day,dayId){
   const dayIdx=DAYS.findIndex(function(d2){return d2.id===dayId;});
   if(dayIdx<0)return{state:'none',doneSets:0};
-  let totalSets=0,doneSets=0,found=false;
+  let totalSets=0,doneSets=0,found=false,foundCycle=null,foundWeek=null;
   for(let c=1;c<=curCycle+2;c++){
     for(let w=0;w<4;w++){
-      // Probar tanto con índice numérico (d0,d1,d2) como con letra (dl,dm,dv)
       const keys=['sess_c'+c+'_w'+w+'_d'+dayIdx,'sess_c'+c+'_w'+w+'_d'+dayId];
-      let st=null;
-      for(const sk of keys){if(logData[sk+'_start']){st=logData[sk+'_start'];break;}}
+      let st=null,usedSk='';
+      for(const sk of keys){if(logData[sk+'_start']){st=logData[sk+'_start'];usedSk=sk;break;}}
       if(!st)continue;
       const stDate=new Date(st);
       if(stDate.getFullYear()===year&&stDate.getMonth()===month&&stDate.getDate()===day){
-        found=true;
-        const dayObj=DAYS[dayIdx];
-        for(const ph of dayObj.phases)for(const ex of ph.exs){
-          const wd=ex.wks[w];
-          for(let s=0;s<wd.s;s++){
-            totalSets++;
-            if(getVal(ex.id,c,w,s,'ck'))doneSets++;
-          }
-        }
+        found=true;foundCycle=c;foundWeek=w;
       }
     }
   }
   if(!found)return{state:'none',doneSets:0};
+  if(foundCycle<curCycle){
+    // Ciclo anterior: contar _ck directamente desde logData sin depender de DAYS actual
+    let done=0,total=0;
+    for(const k in logData){
+      if(k.includes('_c'+foundCycle+'_w'+foundWeek+'_')&&k.endsWith('_ck')){
+        total++;
+        if(logData[k]===true)done++;
+      }
+    }
+    // Si no hay claves _ck, asumir sesión completa si tiene _end
+    if(total===0){
+      const sk1='sess_c'+foundCycle+'_w'+foundWeek+'_d'+dayIdx;
+      const sk2='sess_c'+foundCycle+'_w'+foundWeek+'_d'+dayId;
+      const hasEnd=logData[sk1+'_end']||logData[sk2+'_end'];
+      return{state:hasEnd?'full':'partial',doneSets:0};
+    }
+    const pct=done/total;
+    return{state:pct>=0.85?'full':pct>0?'partial':'started',doneSets:done};
+  }
+  // Ciclo actual: usar DAYS para contar con precisión
+  const dayObj=DAYS[dayIdx];
+  for(const ph of dayObj.phases)for(const ex of ph.exs){
+    const wd=ex.wks[Math.min(foundWeek,3)];
+    for(let s=0;s<wd.s;s++){
+      totalSets++;
+      if(getVal(ex.id,foundCycle,foundWeek,s,'ck'))doneSets++;
+    }
+  }
   const pct=totalSets>0?doneSets/totalSets:0;
   return{state:pct>=0.95?'full':pct>0?'partial':'started',doneSets};
 }
@@ -2141,33 +2161,13 @@ function calDayDetail(year,month,day,dayId){
   h+='</div>';
   if(foundCycle===null){
     h+='<div class="cal-empty-msg">SIN REGISTRO DE SESIÓN</div>';
-  } else if(foundCycle<curCycle){
-    // Ciclo anterior: los IDs de ejercicio no coinciden con DAYS actual
-    // Mostrar solo resumen (tonelaje y series) sin nombres de ejercicio
-    var totalKg=0,totalSets=0,totalDone=0;
-    for(var ph2 of dayObj.phases)for(var ex2 of ph2.exs){
-      var wd2=ex2.wks[foundWeek];
-      for(var s2=0;s2<wd2.s+3;s2++){
-        var kg2=parseFloat(getVal(ex2.id,foundCycle,foundWeek,s2,'kg')||0);
-        var rp2=parseInt(getVal(ex2.id,foundCycle,foundWeek,s2,'rp')||0);
-        var ck2=getVal(ex2.id,foundCycle,foundWeek,s2,'ck');
-        if(kg2>0&&rp2>0)totalKg+=kg2*rp2;
-        if(ck2)totalDone++;
-        if(kg2>0||ck2)totalSets++;
-      }
-    }
-    h+='<div style="padding:12px;font-family:var(--f-mono);font-size:9px;color:var(--mu);text-align:center">';
-    h+='<div style="font-size:11px;color:#5a7a9a;margin-bottom:6px">ℹ️ Datos del Ciclo '+foundCycle+'</div>';
-    h+='<div style="display:flex;gap:16px;justify-content:center">';
-    h+='<div><span style="font-size:16px;color:var(--or);font-family:var(--f-title)">'+totalDone+'</span><br>series ✓</div>';
-    h+='<div><span style="font-size:16px;color:var(--or);font-family:var(--f-title)">'+(totalKg>=1000?(totalKg/1000).toFixed(1)+'t':totalKg+'kg')+'</span><br>volumen</div>';
-    h+='</div></div>';
   } else {
     for(const ph of dayObj.phases){
       let phRows='';
       for(const ex of ph.exs){
         const wd=ex.wks[foundWeek];
         const sets=[];let done=0;
+        // Iterar hasta wd.s o más si hay datos más allá
         let maxS=wd.s;
         for(let si=wd.s;si<wd.s+3;si++){
           if(getVal(ex.id,foundCycle,foundWeek,si,'ck')||getVal(ex.id,foundCycle,foundWeek,si,'kg'))maxS=si+1;
