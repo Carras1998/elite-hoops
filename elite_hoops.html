@@ -1343,12 +1343,13 @@ function pctToLvlReal(pct,isOverloaded,pctProg){
 /* ========== GRAPH DATA ========== */
 const CYCLE_COLORS=['#0066FF','#4D99FF','#4a9d4a','#6b8fcf','#9b59b6','#e74c3c'];
 function getExHistory(exId){
-  const ex=getEx(exId);if(!ex)return[];
-  // Buscar c1Id en TRACK para mostrar historial de C1
+  // Buscar entry en TRACK (tiene c1Id si el ejercicio existe en C1)
   const trackEntry=TRACK.find(function(t){return t.exId===exId;});
   const c1Id=trackEntry?trackEntry.c1Id:null;
+  // Buscar ex en DAYS_C2 siempre (para pesos programados del C2)
+  const ex=getExFromDays(exId,DAYS_C2);
   const pts=[];
-  // C1 histórico (si el ejercicio tiene equivalente en C1)
+  // ── C1 histórico ─────────────────────────────────────────────
   if(c1Id){
     const c1Ex=getExFromDays(c1Id,DAYS_C1);
     for(let w=0;w<4;w++){
@@ -1364,18 +1365,20 @@ function getExHistory(exId){
       pts.push({label:'C1S'+(w+1),cycle:1,week:w,kg:maxKg,prog:progResolved>0?progResolved:null});
     }
   }
-  // C2+ (ciclo actual)
-  for(let c=DAYS_CYCLE;c<=curCycle;c++){
-    for(let w=0;w<4;w++){
-      const wd=ex.wks[w];let maxKg=null;
-      for(let s=0;s<wd.s;s++){
-        const kv=getVal(exId,c,w,s,'kg');
-        if(kv===null||kv===undefined||kv==='')continue;
-        const resolved=resolveLogKg(kv,wd.kg);
-        if(resolved!==null&&(maxKg===null||resolved>maxKg))maxKg=resolved;
+  // ── C2+ ──────────────────────────────────────────────────────
+  if(ex){
+    for(let c=DAYS_CYCLE;c<=Math.max(curCycle,DAYS_CYCLE);c++){
+      for(let w=0;w<4;w++){
+        const wd=ex.wks[w];let maxKg=null;
+        for(let s=0;s<wd.s;s++){
+          const kv=getVal(exId,c,w,s,'kg');
+          if(kv===null||kv===undefined||kv==='')continue;
+          const resolved=resolveLogKg(kv,wd.kg);
+          if(resolved!==null&&(maxKg===null||resolved>maxKg))maxKg=resolved;
+        }
+        const progResolved=resolveKg(wd.kg);
+        pts.push({label:'C'+c+'S'+(w+1),cycle:c,week:w,kg:maxKg,prog:progResolved>0?progResolved:null});
       }
-      const progResolved=resolveKg(wd.kg);
-      pts.push({label:'C'+c+'S'+(w+1),cycle:c,week:w,kg:maxKg,prog:progResolved>0?progResolved:null});
     }
   }
   return pts;
@@ -1708,9 +1711,14 @@ function renderProgreso(){
     h+='<div class="prog-tbl-wrap"><table class="prog-tbl"><thead><tr><th>Ejercicio</th>';
     for(const w of WEEKS)h+='<th>'+w.name+'<br><span style="font-size:6px;color:var(--'+w.color+')">'+w.label+'</span></th>';
     h+='</tr></thead><tbody>';
-    for(const t of TRACK){const ex=getEx(t.exId);if(!ex)continue;h+='<tr><td>'+t.name+'</td>';
-      for(let wi=0;wi<4;wi++){const wd=ex.wks[wi];const prog=typeof wd.kg==='string'?wd.kg:wd.kg+'kg';let maxReal=null,maxReps=null;
-        for(let s=0;s<wd.s;s++){const kv=getVal(ex.id,curCycle,wi,s,'kg');if(kv!==null&&kv!==undefined&&kv!==''){const f=resolveLogKg(kv,wd.kg);if(f!==null&&(maxReal===null||f>maxReal)){maxReal=f;maxReps=getVal(ex.id,curCycle,wi,s,'rp');}}}
+     for(const t of TRACK){
+       const ex=getExFromDays(t.exId,DAYS_C2);if(!ex)continue;
+       // Si estamos en C1, buscar datos con c1Id
+       const dataId=(curCycle<DAYS_CYCLE&&t.c1Id)?t.c1Id:t.exId;
+       const dataCycle=(curCycle<DAYS_CYCLE&&t.c1Id)?1:curCycle;
+       h+='<tr><td>'+t.name+'</td>';
+        for(let wi=0;wi<4;wi++){const wd=ex.wks[wi];const prog=typeof wd.kg==='string'?wd.kg:wd.kg+'kg';let maxReal=null,maxReps=null;
+          for(let s=0;s<wd.s+3;s++){const kv=getVal(dataId,dataCycle,wi,s,'kg');if(kv===null||kv===undefined||kv==='')continue;const resolved=resolveLogKg(kv,wd.kg);if(resolved!==null&&(maxReal===null||resolved>maxReal)){maxReal=resolved;maxReps=parseInt(getVal(dataId,dataCycle,wi,s,'rp'))||null;}}
         let cls='mt',txt='\u2014';if(maxReal!==null){const p=typeof wd.kg==='number'?wd.kg:null;cls=p===null?'sm':maxReal>p?'up':maxReal===p?'sm':'dn';txt=maxReps?maxReal+'\u00d7'+maxReps:maxReal+'kg';}
         h+='<td><div class="c-prog">'+wd.s+'\u00d7'+wd.r+'\u00b7'+prog+'</div><div class="c-real '+cls+'">'+txt+'</div></td>';
       }
