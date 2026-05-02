@@ -2209,11 +2209,24 @@ function renderCalendario(calTarget){
   for(let d=1;d<=daysInMonth;d++){
     const jd=new Date(calYear,calMonth,d).getDay();
     const did=TRAIN_MAP[jd];
-    if(!did)continue;
-    const st=getDayState(calYear,calMonth,d,did);
-    if(st.state==='full')mFull++;
-    else if(st.state==='partial')mPartial++;
-    mSets+=st.doneSets;
+    if(did){
+      const st=getDayState(calYear,calMonth,d,did);
+      if(st.state==='full')mFull++;
+      else if(st.state==='partial')mPartial++;
+      mSets+=st.doneSets;
+    } else {
+      // Día no estándar — buscar sesión extra (sábado/domingo)
+      const xs=findSessionForDate(calYear,calMonth,d);
+      if(xs){
+        mFull++;
+        // Contar series de esa sesión
+        const dObj=xs.dayObj;
+        if(dObj){for(const ph of dObj.phases)for(const ex of ph.exs){
+          const wd=ex.wks[Math.min(xs.week,3)];
+          for(let s=0;s<wd.s;s++)if(getVal(ex.id,xs.cycle,xs.week,s,'ck'))mSets++;
+        }}
+      }
+    }
   }
 
   // Construir HTML
