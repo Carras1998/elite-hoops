@@ -174,8 +174,8 @@ body::after{content:'';display:block;height:66px;}
 /* PROGRESS */
 .prog-wrap{padding:0 20px 60px;}
 .prog-title{font-family:var(--f-title);font-size:20px;letter-spacing:.06em;padding:18px 0 10px;border-bottom:1px solid var(--bd);}
-.sub-tabs{display:flex;margin:14px 0 0;}
-.stab{font-family:var(--f-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:7px 16px;background:transparent;border:1px solid var(--bd);color:var(--mu);cursor:pointer;touch-action:manipulation;transition:background .15s,color .15s,border-color .15s;}
+.sub-tabs{display:flex;overflow-x:auto;gap:3px;padding:4px 10px;scrollbar-width:none;-ms-overflow-style:none;width:100%;box-sizing:border-box;}
+.stab{font-family:var(--f-mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px 7px;background:transparent;border:1px solid var(--bd);color:var(--mu);cursor:pointer;touch-action:manipulation;transition:background .15s,color .15s,border-color .15s;flex-shrink:0;white-space:nowrap;}
 .stab:first-child{border-radius:3px 0 0 3px;}
 .stab:last-child{border-radius:0 3px 3px 0;}
 .stab+.stab{border-left:none;}
@@ -1300,34 +1300,40 @@ function exBaseStim(ex,wd){
   return wd.s*reps*repsTo1RM(reps)*tagM*restM;  // fallback
 }
 
+// Multiplicadores RPE para series efectivas
+const RPE_MULT={5:0.5,6:0.75,7:1.0,8:1.25,9:1.5,10:1.75};
+
 function calcSessionMuscles(dayIdx,weekIdx){
   const day=DAYS[dayIdx];
-  // Acumular series efectivas por grupo muscular (con multiplicadores de rol)
-  const sessSets={};   // series efectivas de esta sesión
-  const realSets={};   // series efectivas reales (completadas)
+  const sessSets={};
+  const realSets={};
   let hasReal=false;
 
   for(const ph of day.phases)for(const ex of ph.exs){
     const muscles=EX_MUSCLES[ex.id];if(!muscles)continue;
     const wd=ex.wks[weekIdx];
 
-    // PROGRAMADO: acumular series × multiplicador
+    // PROGRAMADO: series × multiplicador de rol (sin RPE — aún no sabemos)
     for(const[m,rol]of Object.entries(muscles)){
       const mult=ROLE_MULT[rol]||0;
       sessSets[m]=(sessSets[m]||0)+wd.s*mult;
     }
 
-    // REAL: contar solo series completadas con datos
-    let completedSets=0;
+    // REAL: series completadas × RPE_MULT × rol
+    let totalEffective=0;
     for(let s=0;s<wd.s+2;s++){
       const ck=getVal(ex.id,curCycle,weekIdx,s,'ck');
-      if(ck)completedSets++;
+      if(!ck)continue;
+      const rpe=parseInt(getVal(ex.id,curCycle,weekIdx,s,'rpe'))||0;
+      // Sin RPE = 0.5 (no sabemos la intensidad, contamos a medias)
+      const rpeMult=rpe>=5?(RPE_MULT[Math.min(rpe,10)]||1.0):0.5;
+      totalEffective+=rpeMult;
     }
-    if(completedSets>0){
+    if(totalEffective>0){
       hasReal=true;
       for(const[m,rol]of Object.entries(muscles)){
         const mult=ROLE_MULT[rol]||0;
-        realSets[m]=(realSets[m]||0)+completedSets*mult;
+        realSets[m]=(realSets[m]||0)+totalEffective*mult;
       }
     }
   }
@@ -1341,17 +1347,18 @@ function calcSessionMuscles(dayIdx,weekIdx){
   }
   for(const[m,sets]of Object.entries(realSets)){
     const mv=MUSCLE_VOL[m];
-    if(mv) real[m]=Math.min(100,Math.round(sets/mv.MAV*100));
-    else real[m]=Math.min(100,Math.round(sets/6*50));
+    // Permitir >100% para mostrar rojo cuando se supera el programado
+    if(mv) real[m]=Math.round(sets/mv.MAV*100);
+    else real[m]=Math.round(sets/6*50);
   }
 
   // overloaded = grupos musculares que superan MRV esta sesión
   const overloaded=new Set();
-  const checkSets=hasReal?realSets:sessSets;
-  for(const[m,sets]of Object.entries(checkSets)){
-    const mv=MUSCLE_VOL[m];
-    // Rojo SOLO cuando series reales superan las programadas Y están sobre MAV
-    if(mv&&sessSets[m]&&sets>sessSets[m]&&(sets/mv.MAV)>1.0) overloaded.add(m);
+  if(hasReal){
+    for(const[m,sets]of Object.entries(realSets)){
+      // Rojo cuando real supera al programado en ese músculo
+      if(sessSets[m]&&sets>sessSets[m]) overloaded.add(m);
+    }
   }
 
   return{prog,real,hasReal,overloaded};
@@ -1723,6 +1730,107 @@ function renderMusculos(muscTarget){
 }
 
 /* ========== RENDER PROGRESO ========== */
+
+function renderResumenDia(){
+  const el=document.getElementById('progreso-content');
+  if(!el){setTimeout(renderResumenDia,50);return;}
+  const day=DAYS[curDay];
+  const wk=WEEKS[curWeek];
+  const {prog,real,hasReal,overloaded}=calcSessionMuscles(curDay,curWeek);
+
+  let h='<div style="padding:16px 12px;max-width:420px;margin:0 auto">';
+
+  // ── HEADER ─────────────────────────────────────────────────
+  h+='<div style="text-align:center;margin-bottom:14px">';
+  h+='<div style="font-family:var(--f-title);font-size:22px;letter-spacing:.1em;color:var(--li)">'+day.name+'</div>';
+  h+='<div style="font-family:var(--f-mono);font-size:9px;color:var(--mu);letter-spacing:.1em">'+wk.name.toUpperCase()+' · CICLO '+curCycle+'</div>';
+  h+='</div>';
+
+  // ── EJERCICIOS DEL DÍA ────────────────────────────────────
+  h+='<div style="background:var(--su);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:12px">';
+  h+='<div style="font-family:var(--f-mono);font-size:8px;color:var(--or);letter-spacing:.12em;margin-bottom:8px">EJERCICIOS REALIZADOS</div>';
+  
+  for(const ph of day.phases){
+    let phContent='';
+    for(const ex of ph.exs){
+      if(ex.tag==='cal')continue; // skip warmup/cooldown
+      const wd=ex.wks[curWeek];
+      const sets=[];let done=0;
+      for(let s=0;s<wd.s+3;s++){
+        const kg=getVal(ex.id,curCycle,curWeek,s,'kg');
+        const rp=getVal(ex.id,curCycle,curWeek,s,'rp');
+        const ck=getVal(ex.id,curCycle,curWeek,s,'ck');
+        if(ck)done++;
+        if(kg&&rp&&parseFloat(kg)>0)sets.push(kg+'×'+rp);
+      }
+      if(!done&&!sets.length)continue;
+      const rpe_vals=[];
+      for(let s=0;s<wd.s+3;s++){const r=getVal(ex.id,curCycle,curWeek,s,'rpe');if(r)rpe_vals.push(r);}
+      const rpeStr=rpe_vals.length?'<span style="color:var(--mu);font-size:7px"> RPE '+rpe_vals.join('/')+'</span>':'';
+      const icon=done>=wd.s?'✅':'⚠️';
+      const setsStr=sets.length?sets.join(' · '):(done+'x✓');
+      phContent+='<div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">'
+        +'<div style="font-family:var(--f-body);font-size:10px;color:var(--li);flex:0 0 auto;max-width:48%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+icon+' '+ex.name+'</div>'
+        +'<div style="font-family:var(--f-mono);font-size:8px;color:var(--or);text-align:right;flex:1;padding-left:4px">'+setsStr+rpeStr+'</div>'
+        +'</div>';
+    }
+    if(phContent)h+=phContent;
+  }
+  h+='</div>';
+
+  // ── MAPA MUSCULAR ─────────────────────────────────────────
+  h+='<div style="background:var(--su);border:1px solid var(--bd);border-radius:8px;padding:10px 12px">';
+  h+='<div style="font-family:var(--f-mono);font-size:8px;color:var(--or);letter-spacing:.12em;margin-bottom:10px">MÚSCULOS TRABAJADOS '+(hasReal?'— REAL':'— PROGRAMADO')+'</div>';
+
+  const MUSCLE_NAMES={'quad':'Cuádriceps','glute':'Glúteo','hamstring':'Isquiotibiales',
+    'lower_back':'Lumbar','upper_pec':'Pec. Superior','lower_pec':'Pec. Inferior',
+    'ant_delt':'Deltoides Ant.','mid_delt':'Deltoides Med.','rear_delt':'Deltoides Post.',
+    'tricep':'Tríceps','bicep':'Bíceps','lats':'Dorsal','mid_trap':'Trapecio Medio',
+    'upper_trap':'Trapecio Superior','calf':'Gemelos','core':'Core'};
+
+  const muscData=hasReal?real:prog;
+  const sorted=Object.entries(muscData).sort((a,b)=>b[1]-a[1]);
+
+  for(const[m,pct]of sorted){
+    if(pct<5)continue;
+    const isOver=overloaded.has(m);
+    const progPctVal=prog[m]||0;
+    const margin=3;
+    // ratio = real / programado (cuánto % del objetivo se ha cumplido)
+    const ratio=progPctVal>0?pct/progPctVal:0;
+    let barColor;
+    if(isOver||pct>progPctVal+margin){
+      barColor='#FF3B3B';   // Rojo: excedido
+    } else if(pct>=progPctVal-margin){
+      barColor='#00E5A0';   // Verde: objetivo cumplido ±3%
+    } else if(ratio>=0.4){
+      barColor='#4D99FF';   // Azul: cerca (40-97% del objetivo)
+    } else {
+      barColor='#1A2A3A';   // Gris oscuro: muy por debajo (<40% del objetivo)
+    }
+    const pctCapped=Math.min(100,pct);
+    const name=MUSCLE_NAMES[m]||m;
+    const progPct=prog[m]||0;
+    const progCapped=Math.min(100,progPct);
+    h+='<div style="margin-bottom:5px">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">';
+    h+='<span style="font-family:var(--f-mono);font-size:8px;color:'+(isOver?'#FF3B3B':'var(--li)')+'">'+name+'</span>';
+    h+='<span style="font-family:var(--f-mono);font-size:7px">';
+    h+='<span style="color:#4A4A7A">prog '+progPct+'%</span>';
+    h+='<span style="color:var(--bd)"> | </span>';
+    h+='<span style="color:'+(isOver?'#FF3B3B':'var(--or)')+'">real '+pct+'%'+(isOver?' ⚠️':'')+'</span>';
+    h+='</span></div>';
+    h+='<div style="position:relative;height:6px;background:var(--bd);border-radius:3px;overflow:visible">';
+    h+='<div style="position:absolute;inset:0;width:'+progCapped+'%;background:#1e1e40;border-radius:3px"></div>';
+    h+='<div style="position:absolute;inset:0;width:'+pctCapped+'%;background:'+barColor+';border-radius:3px;opacity:.9"></div>';
+    h+='</div></div>';
+  }
+  h+='<div style="font-family:var(--f-mono);font-size:7px;color:var(--mu);margin-top:8px;text-align:center">% del volumen semanal óptimo (MAV)</div>';
+  h+='</div>';
+  h+='</div>';
+  el.innerHTML=h;
+}
+
 function renderProgreso(){
   const wk=WEEKS[curWeek];
   let h='<div class="prog-wrap"><div class="prog-title">\ud83d\udcca PROGRESO REAL</div>';
@@ -1732,6 +1840,7 @@ function renderProgreso(){
     +'<button class="stab'+(progresoTab==='lsi'?' active':'')+'" onclick="setProgresoTab(\'lsi\')">LSI</button>'
     +'<button class="stab'+(progresoTab==='musculos'?' active':'')+'" onclick="setProgresoTab(\'musculos\')">M\u00fasculos</button>'
     +'<button class="stab'+(progresoTab==='historial'?' active':'')+'" onclick="setProgresoTab(\'historial\')">Historial</button>'
+    +'<button class="stab'+(progresoTab==='resumen'?' active':'')+'" onclick="setProgresoTab(\'resumen\')">Resumen</button>'
     +'</div>';
   if(progresoTab==='tabla'){
     h+='<p class="prog-note">Programado vs. registrado &middot; <strong>Verde</strong> = superaste &middot; <strong>Naranja</strong> = igual &middot; <strong>Rojo</strong> = por debajo.</p>';
@@ -1767,6 +1876,11 @@ function renderProgreso(){
     h+='<div id="progreso-content"></div></div>';
     document.getElementById('v-progreso').innerHTML=h;
     renderCalendario('progreso-content');
+    return;
+  } else if(progresoTab==='resumen'){
+    h+='<div id="progreso-content"></div></div>';
+    document.getElementById('v-progreso').innerHTML=h;
+    renderResumenDia();
     return;
   } else {
     // Graphs
